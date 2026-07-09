@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel do blog | André Calazans Advocacia</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+  .admin-wrap { max-width: 760px; margin: 0 auto; }
+  .field { margin-bottom: 1.4rem; }
+  .field label { display:block; font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--graphite); margin-bottom: 0.4rem; }
+  .field input, .field select, .field textarea {
+    width: 100%; font-family: var(--body); font-size: 1rem; padding: 0.75rem 0.9rem;
+    border: 1px solid var(--line); background: var(--white); color: var(--ink);
+  }
+  .field textarea { min-height: 220px; resize: vertical; font-family: var(--mono); font-size: 0.9rem; line-height: 1.5; }
+  .field small { color: var(--graphite); font-size: 0.82rem; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .msg { font-family: var(--mono); font-size: 0.85rem; padding: 0.9rem; margin-bottom: 1.2rem; }
+  .msg.ok { background: #e8f0e4; color: #33502e; }
+  .msg.err { background: #f5e3e0; color: #7a2c22; }
+  .post-row { display:flex; justify-content:space-between; align-items:center; padding: 0.9rem 0; border-bottom: 1px solid var(--line); gap: 1rem; }
+  .post-row .tag { font-family: var(--mono); font-size: 0.7rem; padding: 0.2rem 0.5rem; border: 1px solid var(--line); }
+  .post-row .tag.pub { color: #33502e; border-color: #b7cdae; }
+  .post-row .tag.draft { color: var(--graphite); }
+  .post-actions button { font-family: var(--mono); font-size: 0.75rem; background:none; border: 1px solid var(--ink); padding: 0.4rem 0.7rem; cursor:pointer; margin-left: 0.4rem; }
+  .post-actions button:hover { background: var(--ink); color: var(--paper); }
+  #login-box { max-width: 380px; margin: 4rem auto; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <nav class="nav">
+    <a class="brand" href="../#top">André Calazans<span>Painel do blog</span></a>
+    <button class="nav-cta" id="logout-btn" style="display:none; cursor:pointer;">SAIR</button>
+  </nav>
+</header>
+
+<main class="wrap" style="padding: 3rem var(--gap);">
+
+  <div id="login-box">
+    <p class="processo">Acesso restrito</p>
+    <h2 style="margin-bottom:1.5rem;">Entrar no painel</h2>
+    <div id="login-msg"></div>
+    <div class="field">
+      <label>E-mail</label>
+      <input type="email" id="email" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Senha</label>
+      <input type="password" id="password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="login-btn" style="width:100%; justify-content:center;">Entrar</button>
+    <p style="margin-top:1.5rem; font-size:0.85rem; color:var(--graphite);">
+      Ainda não tem uma conta de acesso? Crie o primeiro usuário pelo painel do Supabase em
+      <strong>Authentication → Users → Add user</strong>, com seu e-mail e uma senha forte.
+    </p>
+  </div>
+
+  <div id="admin-box" class="admin-wrap" style="display:none;">
+    <p class="processo">Novo artigo</p>
+    <div id="form-msg"></div>
+    <form id="post-form">
+      <div class="field">
+        <label>Título</label>
+        <input type="text" id="f-title" required>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Categoria</label>
+          <select id="f-category">
+            <option>Direito do Trabalho</option>
+            <option>Direito de Família</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Slug (URL do artigo)</label>
+          <input type="text" id="f-slug" placeholder="gerado automaticamente" required>
+        </div>
+      </div>
+      <div class="field">
+        <label>Resumo (aparece nos cards)</label>
+        <input type="text" id="f-excerpt" maxlength="180">
+      </div>
+      <div class="field">
+        <label>Conteúdo</label>
+        <textarea id="f-content" placeholder="Escreva o artigo. Separe parágrafos com uma linha em branco. Use '## ' no início de uma linha para criar um subtítulo."></textarea>
+        <small>Dica: parágrafos separados por linha em branco viram &lt;p&gt;; uma linha começando com "## " vira um subtítulo.</small>
+      </div>
+      <div class="field" style="display:flex; align-items:center; gap:0.6rem;">
+        <input type="checkbox" id="f-published" style="width:auto;">
+        <label style="margin:0;" for="f-published">Publicar imediatamente</label>
+      </div>
+      <button type="submit" class="btn btn-primary" id="save-btn">Salvar artigo</button>
+    </form>
+
+    <p class="processo" style="margin-top:3rem;">Artigos existentes</p>
+    <div id="post-list"></div>
+  </div>
+
+</main>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { SUPABASE_URL, SUPABASE_KEY } from '../assets/js/supabase-config.js';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const loginBox = document.getElementById('login-box');
+const adminBox = document.getElementById('admin-box');
+const logoutBtn = document.getElementById('logout-btn');
+
+function slugify(str) {
+  return str.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim().replace(/\s+/g, '-');
+}
+
+document.getElementById('f-title').addEventListener('input', (e) => {
+  const slugField = document.getElementById('f-slug');
+  if (!slugField.dataset.touched) slugField.value = slugify(e.target.value);
+});
+document.getElementById('f-slug').addEventListener('input', (e) => { e.target.dataset.touched = 'true'; });
+
+async function checkSession() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    loginBox.style.display = 'none';
+    adminBox.style.display = 'block';
+    logoutBtn.style.display = 'inline-block';
+    loadPosts();
+  } else {
+    loginBox.style.display = 'block';
+    adminBox.style.display = 'none';
+    logoutBtn.style.display = 'none';
+  }
+}
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const msg = document.getElementById('login-msg');
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    msg.innerHTML = `<div class="msg err">${error.message}</div>`;
+  } else {
+    msg.innerHTML = '';
+    checkSession();
+  }
+});
+
+logoutBtn.addEventListener('click', async () => {
+  await supabase.auth.signOut();
+  checkSession();
+});
+
+document.getElementById('post-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('form-msg');
+  const published = document.getElementById('f-published').checked;
+
+  const payload = {
+    title: document.getElementById('f-title').value.trim(),
+    slug: document.getElementById('f-slug').value.trim(),
+    category: document.getElementById('f-category').value,
+    excerpt: document.getElementById('f-excerpt').value.trim(),
+    content: document.getElementById('f-content').value.trim(),
+    published,
+    published_at: published ? new Date().toISOString() : null,
+  };
+
+  const { error } = await supabase.from('blog_posts').insert(payload);
+  if (error) {
+    msg.innerHTML = `<div class="msg err">Erro ao salvar: ${error.message}</div>`;
+  } else {
+    msg.innerHTML = '<div class="msg ok">Artigo salvo com sucesso.</div>';
+    document.getElementById('post-form').reset();
+    delete document.getElementById('f-slug').dataset.touched;
+    loadPosts();
+  }
+});
+
+async function loadPosts() {
+  const list = document.getElementById('post-list');
+  const { data, error } = await supabase
+    .from('blog_posts')
+    .select('id, title, published, created_at')
+    .order('created_at', { ascending: false });
+
+  if (error) { list.innerHTML = `<div class="msg err">${error.message}</div>`; return; }
+  if (!data || data.length === 0) { list.innerHTML = '<p style="color:var(--graphite);">Nenhum artigo ainda.</p>'; return; }
+
+  list.innerHTML = data.map(p => `
+    <div class="post-row">
+      <span>${p.title}</span>
+      <span style="display:flex; align-items:center; gap:0.6rem;">
+        <span class="tag ${p.published ? 'pub' : 'draft'}">${p.published ? 'PUBLICADO' : 'RASCUNHO'}</span>
+        <span class="post-actions">
+          <button data-id="${p.id}" data-action="toggle">${p.published ? 'Despublicar' : 'Publicar'}</button>
+          <button data-id="${p.id}" data-action="delete">Excluir</button>
+        </span>
+      </span>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('button[data-action="toggle"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { data: current } = await supabase.from('blog_posts').select('published').eq('id', btn.dataset.id).single();
+      const newState = !current.published;
+      await supabase.from('blog_posts').update({ published: newState, published_at: newState ? new Date().toISOString() : null }).eq('id', btn.dataset.id);
+      loadPosts();
+    });
+  });
+  list.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Excluir este artigo definitivamente?')) return;
+      await supabase.from('blog_posts').delete().eq('id', btn.dataset.id);
+      loadPosts();
+    });
+  });
+}
+
+checkSession();
+</script>
+</body>
+</html>
